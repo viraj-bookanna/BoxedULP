@@ -1,0 +1,11 @@
+telethon
+cryptg
+python-dotenv
+tqdm
+rarfile
+py7zr
+multivolumefile
+asyncio
+aiofiles
+pandas
+sqlalchemy
