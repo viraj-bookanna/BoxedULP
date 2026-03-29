@@ -37,7 +37,7 @@ class StealerLogParser:
                     line = [x.strip() for x in line.split(":", 1)]
                     if len(line) != 2:
                         continue
-                    elif line[0] in obj:
+                    if line[0] in obj:
                         obj = {line[0]: line[1]}
                     elif line[0] in keys:
                         obj[line[0]] = line[1]

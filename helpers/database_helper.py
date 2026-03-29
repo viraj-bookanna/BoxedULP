@@ -1,6 +1,6 @@
 import os
 from typing import Sequence
-
+from urllib.parse import urlparse
 from sqlalchemy import create_engine, Column, Integer, String, insert
 from sqlalchemy.orm import declarative_base, sessionmaker
 from dotenv import load_dotenv
@@ -43,10 +43,19 @@ class DatabaseSQL:
         Returns:
             Total number of rows inserted.
         """
-        bulk_data = [
-            {"username": u, "password": p, "login_url": url, "domain": d}
-            for u, p, url, d in combolist
-        ]
+        bulk_data = []
+        for u, p, url in combolist:
+            try:
+                bulk_data.append(
+                    {
+                        "username": u,
+                        "password": p,
+                        "login_url": url,
+                        "domain": urlparse(url).netloc,
+                    }
+                )
+            except Exception:  # pylint: disable=broad-exception-caught
+                pass
         total_inserted = 0
         for i in range(0, len(bulk_data), chunk_size):
             chunk = bulk_data[i : i + chunk_size]
