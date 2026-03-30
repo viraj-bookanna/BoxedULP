@@ -27,7 +27,6 @@ _dl_folder = os.path.join(_cwd, "download")
 _ex_folder = os.path.join(_cwd, "extract")
 os.makedirs(_dl_folder, exist_ok=True)
 os.makedirs(_ex_folder, exist_ok=True)
-os.makedirs(os.path.join(_cwd, "files"), exist_ok=True)
 
 
 class BoxedULParser:
@@ -42,11 +41,13 @@ class BoxedULParser:
 
     async def start_clients(self) -> None:
         """Initialize and connect both the user client and the bot client."""
+        logging.info("Starting Telegram clients...")
         self._usr = TelegramClient(StringSession(_string_session), _api_id, _api_hash)
         await self._usr.connect()
         self._bot = TelegramClient("bot", _api_id, _api_hash)
         await self._bot.start(bot_token=_bot_token)
         self.__bot_username = (await self._bot.get_me()).username
+        logging.info("Clients connected (bot: @%s)", self.__bot_username)
 
     async def tg_log(self, message: str) -> None:
         """Logs a message to telegram log chat_id"""
@@ -55,6 +56,7 @@ class BoxedULParser:
     async def _boxed2bot(self, event: events.NewMessage.Event) -> None:
         """Forward Boxed channel messages to the intermediate bot."""
         if event.chat_id == _boxed_id and event.message.buttons:
+            logging.info("New Boxed channel message detected (ID: %s)", event.message.id)
             try:
                 url = urlparse(event.message.buttons[0][0].url)
                 bot = await self._usr.get_entity(f"@{url.path.lstrip('/')}")
@@ -96,6 +98,7 @@ class BoxedULParser:
 
     async def _process_dump(self, event: events.NewMessage.Event) -> None:
         """Download, extract, parse, and store credentials from a bot message."""
+        logging.info("Processing message %s: %s", event.message.id, event.message.file.name)
         archive = await TgFileDownloader().download(event.message, _dl_folder)
         dest_folder = os.path.join(_ex_folder, f"{event.message.id}")
         password = event.message.message.split(".pass:", 1)[1].split("\n", 1)[0].strip()
@@ -121,10 +124,19 @@ class BoxedULParser:
         self._usr.add_event_handler(self._boxed2bot, events.NewMessage)
         self._bot.add_event_handler(self._bot2dump, events.NewMessage)
         asyncio.create_task(self._process_queue())
+        logging.info("Event handlers registered, listening for messages...")
         await self._usr.run_until_disconnected()
 
 
 if __name__ == "__main__":
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler("boxedulp.log", encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
+    )
     box = BoxedULParser()
     try:
         asyncio.run(box.start())

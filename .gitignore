@@ -206,6 +206,11 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-#telethon sessions
+# telethon sessions
 *.session
 *.session-journal
+
+# temp folders
+download/
+extract/
+rar/

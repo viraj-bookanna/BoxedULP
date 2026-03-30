@@ -3,6 +3,7 @@ import asyncio
 import logging
 import zipfile
 from typing import Optional
+from dotenv import load_dotenv
 
 import rarfile
 import py7zr
@@ -11,6 +12,7 @@ import aiofiles.os
 import multivolumefile
 from tqdm import tqdm
 
+load_dotenv(override=True)
 _UNRAR_PATH = os.getenv("UNRAR_PATH", "")
 if _UNRAR_PATH:
     rarfile.UNRAR_TOOL = _UNRAR_PATH
@@ -53,7 +55,9 @@ class ArchiveExtractor:
                 logging.debug("Failed to extract %s", info, exc_info=True)
                 continue
 
-    def _extract_7z(self, seven_zip_ref: py7zr.SevenZipFile, output_folder: str) -> None:
+    def _extract_7z(
+        self, seven_zip_ref: py7zr.SevenZipFile, output_folder: str
+    ) -> None:
         """Extract a 7z archive with a byte-level progress bar."""
         with Pbar7z(
             total=seven_zip_ref.archiveinfo().uncompressed,
@@ -85,7 +89,9 @@ class ArchiveExtractor:
                     rar_ref.setpassword(password)
                 self._extract_zip_or_rar(rar_ref, output_folder)
         elif input_file.lower().endswith(".7z"):
-            with py7zr.SevenZipFile(input_file, "r", password=password) as seven_zip_ref:
+            with py7zr.SevenZipFile(
+                input_file, "r", password=password
+            ) as seven_zip_ref:
                 self._extract_7z(seven_zip_ref, output_folder)
         elif input_file.lower().endswith((".7z.001", ".7z.0001")):
             with multivolumefile.open(
@@ -99,7 +105,11 @@ class ArchiveExtractor:
             raise ValueError(f"Unknown file format: {input_file}")
 
     async def try_to_extract(
-        self, file: str, dest_folder: str, password: Optional[str] = None, level: int = 0
+        self,
+        file: str,
+        dest_folder: str,
+        password: Optional[str] = None,
+        level: int = 0,
     ) -> bool:
         """Attempt to extract an archive, recursing once for nested archives."""
         try:
@@ -111,12 +121,19 @@ class ArchiveExtractor:
                 if await aiofiles.os.path.isfile(efile) and ex_files[
                     0
                 ].lower().endswith((".rar", ".zip", ".7z")):
+                    logging.info("Nested archive detected, extracting: %s", efile)
                     res = await self.try_to_extract(
                         efile, dest_folder, password, level + 1
                     )
                     await aiofiles.os.remove(efile)
                     return res
-        except (OSError, ValueError, rarfile.Error, zipfile.BadZipFile, py7zr.Bad7zFile):
+        except (
+            OSError,
+            ValueError,
+            rarfile.Error,
+            zipfile.BadZipFile,
+            py7zr.Bad7zFile,
+        ):
             logging.error("Extraction failed for %s", file, exc_info=True)
             return False
         return True

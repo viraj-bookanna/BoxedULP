@@ -45,7 +45,7 @@ class StealerLogParser:
                         yield tuple(dict(sorted(obj.items())).values())
                         obj = {}
         except (OSError, UnicodeDecodeError):
-            pass
+            logging.debug("Failed to read password file: %s", redline_txt, exc_info=True)
 
     def _find_passwords_file(self, extract_path: str) -> Optional[tuple[str, str]]:
         """Walk the directory tree to locate the first password file."""
@@ -86,4 +86,5 @@ class StealerLogParser:
         for combofile in tqdm(log_dirs, desc="└─ Parsing"):
             async for line in self._parse_ulp(combofile):
                 combos.append(line)
+        logging.info("Parsed %d credentials from %d directories", len(combos), len(log_dirs))
         return combos

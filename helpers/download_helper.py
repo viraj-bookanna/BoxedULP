@@ -1,4 +1,5 @@
 import os
+import logging
 from typing import Optional
 
 from telethon.tl.custom.message import Message
@@ -41,11 +42,13 @@ class TgFileDownloader:
             Path to the downloaded file, or None if no document.
         """
         if not message.document:
+            logging.warning("No document in message %s, skipping download", message.id)
             return
         out_file = os.path.join(
             download_dir,
             message.file.name,
         )
+        logging.info("Downloading %s (ID: %s)", message.file.name, message.id)
         tqdm.write(f"┌ Processing: {message.file.name} (ID: {message.id})")
         try:
             with open(out_file, "wb") as out:
@@ -55,7 +58,11 @@ class TgFileDownloader:
                     out,
                     progress_callback=self._update,
                 )
+        except Exception:
+            logging.error("Download failed for %s (ID: %s)", message.file.name, message.id, exc_info=True)
+            raise
         finally:
             if self.pbar:
                 self.pbar.close()
+        logging.info("Download complete: %s", out_file)
         return out_file
