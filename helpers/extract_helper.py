@@ -12,6 +12,7 @@ import aiofiles.os
 import multivolumefile
 from tqdm import tqdm
 
+logger = logging.getLogger("ulp")
 load_dotenv(override=True)
 _UNRAR_PATH = os.getenv("UNRAR_PATH", "")
 if _UNRAR_PATH:
@@ -52,7 +53,7 @@ class ArchiveExtractor:
             try:
                 archive_ref.extract(info, path=output_folder)
             except (OSError, KeyError):
-                logging.debug("Failed to extract %s", info, exc_info=True)
+                logger.debug("Failed to extract %s", info, exc_info=True)
                 continue
 
     def _extract_7z(
@@ -121,7 +122,7 @@ class ArchiveExtractor:
                 if await aiofiles.os.path.isfile(efile) and ex_files[
                     0
                 ].lower().endswith((".rar", ".zip", ".7z")):
-                    logging.info("Nested archive detected, extracting: %s", efile)
+                    logger.info("Nested archive detected, extracting: %s", efile)
                     res = await self.try_to_extract(
                         efile, dest_folder, password, level + 1
                     )
@@ -134,6 +135,6 @@ class ArchiveExtractor:
             zipfile.BadZipFile,
             py7zr.Bad7zFile,
         ):
-            logging.error("Extraction failed for %s", file, exc_info=True)
+            logger.error("Extraction failed for %s", file, exc_info=True)
             return False
         return True

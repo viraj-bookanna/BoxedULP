@@ -6,6 +6,7 @@ from sqlalchemy import create_engine, Column, Integer, String, insert
 from sqlalchemy.orm import declarative_base, sessionmaker
 from dotenv import load_dotenv
 
+logger = logging.getLogger("ulp")
 load_dotenv(override=True)
 engine = create_engine(os.getenv("SQL_CONNECTION_STRING"))
 Session = sessionmaker(bind=engine)
@@ -56,9 +57,13 @@ class DatabaseSQL:
                     }
                 )
             except Exception:  # pylint: disable=broad-exception-caught
-                logging.debug("Skipping malformed combo entry: %s", (u, url), exc_info=True)
+                logger.debug(
+                    "Skipping malformed combo entry: %s", (u, url), exc_info=True
+                )
         total_inserted = 0
-        logging.info("Inserting %d credentials in chunks of %d", len(bulk_data), chunk_size)
+        logger.info(
+            "Inserting %d credentials in chunks of %d", len(bulk_data), chunk_size
+        )
         dialect = engine.dialect.name
         for i in range(0, len(bulk_data), chunk_size):
             chunk = bulk_data[i : i + chunk_size]
@@ -72,6 +77,6 @@ class DatabaseSQL:
                     conn.execute(stmt, chunk)
                     total_inserted += len(chunk)
             except Exception:  # pylint: disable=broad-exception-caught
-                logging.warning("Chunk insert failed at offset %d", i, exc_info=True)
-        logging.info("Inserted %d credentials total", total_inserted)
+                logger.warning("Chunk insert failed at offset %d", i, exc_info=True)
+        logger.info("Inserted %d credentials total", total_inserted)
         return total_inserted

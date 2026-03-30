@@ -6,6 +6,8 @@ import aiofiles
 import aiofiles.os
 from tqdm import tqdm
 
+logger = logging.getLogger("ulp")
+
 
 class StealerLogParser:
     """Parses stealer log directories into normalized (username, password, url) tuples."""
@@ -45,7 +47,7 @@ class StealerLogParser:
                         yield tuple(dict(sorted(obj.items())).values())
                         obj = {}
         except (OSError, UnicodeDecodeError):
-            logging.debug("Failed to read password file: %s", redline_txt, exc_info=True)
+            logger.debug("Failed to read password file: %s", redline_txt, exc_info=True)
 
     def _find_passwords_file(self, extract_path: str) -> Optional[tuple[str, str]]:
         """Walk the directory tree to locate the first password file."""
@@ -66,13 +68,13 @@ class StealerLogParser:
         """
         result = self._find_passwords_file(extract_path)
         if not result:
-            logging.warning("No password file found in %s", extract_path)
+            logger.warning("No password file found in %s", extract_path)
             return
         extract_path, file_name = result
         try:
             dir_entries = await aiofiles.os.listdir(extract_path)
         except (OSError, PermissionError) as e:
-            logging.error("Cannot access directory %s: %s", extract_path, e)
+            logger.error("Cannot access directory %s: %s", extract_path, e)
             return
         log_dirs = []
         for name in dir_entries:
@@ -86,5 +88,7 @@ class StealerLogParser:
         for combofile in tqdm(log_dirs, desc="└─ Parsing"):
             async for line in self._parse_ulp(combofile):
                 combos.append(line)
-        logging.info("Parsed %d credentials from %d directories", len(combos), len(log_dirs))
+        logger.info(
+            "Parsed %d credentials from %d directories", len(combos), len(log_dirs)
+        )
         return combos
