@@ -209,8 +209,3 @@ __marimo__/
 # telethon sessions
 *.session
 *.session-journal
-
-# temp folders
-download/
-extract/
-rar/

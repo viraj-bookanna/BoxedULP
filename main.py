@@ -17,17 +17,17 @@ from helpers.database_helper import DatabaseSQL
 
 logger = logging.getLogger("ulp")
 load_dotenv(override=True)
-_api_id = os.getenv("API_ID")
-_api_hash = os.getenv("API_HASH")
-_string_session = os.getenv("STRING_SESSION")
-_bot_token = os.getenv("BOT_TOKEN")
-_boxed_id = int(os.getenv("BOXED_ID"))
-_log_chat_id = int(os.getenv("LOG_CHAT_ID"))
-_cwd = os.getcwd()
-_dl_folder = os.path.join(_cwd, "download")
-_ex_folder = os.path.join(_cwd, "extract")
-os.makedirs(_dl_folder, exist_ok=True)
-os.makedirs(_ex_folder, exist_ok=True)
+_API_ID = os.getenv("API_ID")
+_API_HASH = os.getenv("API_HASH")
+_STRING_SESSION = os.getenv("STRING_SESSION")
+_BOT_TOKEN = os.getenv("BOT_TOKEN")
+_BOXED_ID = int(os.getenv("BOXED_ID"))
+_LOG_CHAT_ID = int(os.getenv("LOG_CHAT_ID"))
+_BASE_DIR = os.getenv("BASE_DIR")
+_DL_FOLDER = os.path.join(_BASE_DIR, "download")
+_EX_FOLDER = os.path.join(_BASE_DIR, "extract")
+os.makedirs(_DL_FOLDER, exist_ok=True)
+os.makedirs(_EX_FOLDER, exist_ok=True)
 
 
 class BoxedULParser:
@@ -43,20 +43,20 @@ class BoxedULParser:
     async def start_clients(self) -> None:
         """Initialize and connect both the user client and the bot client."""
         logger.info("Starting Telegram clients...")
-        self._usr = TelegramClient(StringSession(_string_session), _api_id, _api_hash)
+        self._usr = TelegramClient(StringSession(_STRING_SESSION), _API_ID, _API_HASH)
         await self._usr.connect()
-        self._bot = TelegramClient("bot", _api_id, _api_hash)
-        await self._bot.start(bot_token=_bot_token)
+        self._bot = TelegramClient("bot", _API_ID, _API_HASH)
+        await self._bot.start(bot_token=_BOT_TOKEN)
         self.__bot_username = (await self._bot.get_me()).username
         logger.info("Clients connected (bot: @%s)", self.__bot_username)
 
     async def tg_log(self, message: str) -> None:
         """Logs a message to telegram log chat_id"""
-        await self._bot.send_message(_log_chat_id, message)
+        await self._bot.send_message(_LOG_CHAT_ID, message)
 
     async def _boxed2bot(self, event: events.NewMessage.Event) -> None:
         """Forward Boxed channel messages to the intermediate bot."""
-        if event.chat_id == _boxed_id and event.message.buttons:
+        if event.chat_id == _BOXED_ID and event.message.buttons:
             logger.info("New Boxed channel message detected (ID: %s)", event.message.id)
             try:
                 url = urlparse(event.message.buttons[0][0].url)
@@ -102,8 +102,8 @@ class BoxedULParser:
         logger.info(
             "Processing message %s: %s", event.message.id, event.message.file.name
         )
-        archive = await TgFileDownloader().download(event.message, _dl_folder)
-        dest_folder = os.path.join(_ex_folder, f"{event.message.id}")
+        archive = await TgFileDownloader().download(event.message, _DL_FOLDER)
+        dest_folder = os.path.join(_EX_FOLDER, f"{event.message.id}")
         password = event.message.message.split(".pass:", 1)[1].split("\n", 1)[0].strip()
         if await ArchiveExtractor().try_to_extract(archive, dest_folder, password):
             combolist = await StealerLogParser().ulp_dump(dest_folder)
