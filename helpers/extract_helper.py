@@ -1,6 +1,9 @@
 import os
 import asyncio
 import logging
+import shutil
+import subprocess
+import threading
 import zipfile
 from typing import Optional
 from dotenv import load_dotenv
@@ -17,6 +20,14 @@ load_dotenv(override=True)
 _UNRAR_PATH = os.getenv("UNRAR_PATH", "")
 if _UNRAR_PATH:
     rarfile.UNRAR_TOOL = _UNRAR_PATH
+_7Z_PATH = os.getenv("SEVEN_ZIP_PATH", "")
+if not _7Z_PATH:
+    _7Z_PATH = shutil.which("7z")
+
+if not _7Z_PATH:
+    logger.warning(
+        "Native 7z not found; falling back to py7zr (slower). Set SEVEN_ZIP_PATH or install 7z to PATH."
+    )
 
 
 class Pbar7z(py7zr.callbacks.ExtractCallback, tqdm):
@@ -47,19 +58,50 @@ class Pbar7z(py7zr.callbacks.ExtractCallback, tqdm):
 class ArchiveExtractor:
     """Extracts zip, rar, and 7z archives with progress reporting."""
 
-    def _extract_zip_or_rar(self, archive_ref, output_folder: str) -> None:
-        """Extract entries from a zip or rar archive with a progress bar."""
-        for info in tqdm(archive_ref.infolist(), desc="├─ Extracting"):
+    @staticmethod
+    def _monitored_extract(
+        extract_fn, output_folder: str, total: Optional[int] = None
+    ) -> None:
+        """Run extract_fn while monitoring output_folder for file-count progress."""
+        done = threading.Event()
+
+        def _monitor():
+            count = 0
+            with tqdm(total=total, desc="├─ Extracting", mininterval=0.5) as pbar:
+                while not done.wait(1.5):
+                    new_count = sum(len(f) for _, _, f in os.walk(output_folder))
+                    pbar.update(new_count - count)
+                    count = new_count
+                new_count = sum(len(f) for _, _, f in os.walk(output_folder))
+                pbar.update(new_count - count)
+
+        t = threading.Thread(target=_monitor, daemon=True)
+        t.start()
+        try:
+            extract_fn()
+        finally:
+            done.set()
+            t.join()
+
+    def _extract_zip(self, archive_ref, output_folder: str) -> None:
+        """Extract entries from a zip archive with a progress bar."""
+        for info in tqdm(archive_ref.infolist(), desc="├─ Extracting", mininterval=0.5):
             try:
                 archive_ref.extract(info, path=output_folder)
             except (OSError, KeyError):
                 logger.debug("Failed to extract %s", info, exc_info=True)
-                continue
 
-    def _extract_7z(
+    def _extract_rar(self, rar_ref: rarfile.RarFile, output_folder: str) -> None:
+        """Extract RAR via single unrar process with directory-monitoring progress."""
+        total = sum(1 for i in rar_ref.infolist() if not i.is_dir())
+        self._monitored_extract(
+            lambda: rar_ref.extractall(path=output_folder), output_folder, total
+        )
+
+    def _extract_7z_py(
         self, seven_zip_ref: py7zr.SevenZipFile, output_folder: str
     ) -> None:
-        """Extract a 7z archive with a byte-level progress bar."""
+        """Extract a 7z archive with a byte-level progress bar (py7zr fallback)."""
         with Pbar7z(
             total=seven_zip_ref.archiveinfo().uncompressed,
             unit="iB",
@@ -68,6 +110,31 @@ class ArchiveExtractor:
             desc="├─ Extracting",
         ) as progress:
             seven_zip_ref.extractall(path=output_folder, callback=progress)
+
+    def _extract_7z_native(
+        self, input_file: str, output_folder: str, password: Optional[str] = None
+    ) -> None:
+        """Extract 7z via native 7z binary with directory-monitoring progress."""
+        list_cmd = [_7Z_PATH, "l", input_file, "-bso0", "-bsp0", "-slt"]
+        if password:
+            list_cmd.append(f"-p{password}")
+        list_out = subprocess.run(list_cmd, capture_output=True, text=True, check=False)
+        total = list_out.stdout.count("\nPath = ") - 1
+        if total < 1:
+            total = None
+
+        cmd = [_7Z_PATH, "x", input_file, f"-o{output_folder}", "-y", "-bso0", "-bsp0"]
+        if password:
+            cmd.append(f"-p{password}")
+
+        def _run():
+            result = subprocess.run(cmd, capture_output=True, text=True, check=False)
+            if result.returncode != 0:
+                raise OSError(
+                    f"7z exited with code {result.returncode}: {result.stderr.strip()}"
+                )
+
+        self._monitored_extract(_run, output_folder, total)
 
     def extract_file(
         self, input_file: str, output_folder: str, password: Optional[str] = None
@@ -83,25 +150,31 @@ class ArchiveExtractor:
             with zipfile.ZipFile(input_file, "r") as zip_ref:
                 if password:
                     zip_ref.setpassword(password.encode("utf-8"))
-                self._extract_zip_or_rar(zip_ref, output_folder)
+                self._extract_zip(zip_ref, output_folder)
         elif input_file.lower().endswith(".rar"):
             with rarfile.RarFile(input_file, "r") as rar_ref:
                 if password:
                     rar_ref.setpassword(password)
-                self._extract_zip_or_rar(rar_ref, output_folder)
+                self._extract_rar(rar_ref, output_folder)
         elif input_file.lower().endswith(".7z"):
-            with py7zr.SevenZipFile(
-                input_file, "r", password=password
-            ) as seven_zip_ref:
-                self._extract_7z(seven_zip_ref, output_folder)
-        elif input_file.lower().endswith((".7z.001", ".7z.0001")):
-            with multivolumefile.open(
-                input_file.rsplit(".7z", 1)[0] + ".7z", mode="rb"
-            ) as target_archive:
+            if _7Z_PATH:
+                self._extract_7z_native(input_file, output_folder, password)
+            else:
                 with py7zr.SevenZipFile(
-                    target_archive, "r", password=password
+                    input_file, "r", password=password
                 ) as seven_zip_ref:
-                    self._extract_7z(seven_zip_ref, output_folder)
+                    self._extract_7z_py(seven_zip_ref, output_folder)
+        elif input_file.lower().endswith((".7z.001", ".7z.0001")):
+            if _7Z_PATH:
+                self._extract_7z_native(input_file, output_folder, password)
+            else:
+                with multivolumefile.open(
+                    input_file.rsplit(".7z", 1)[0] + ".7z", mode="rb"
+                ) as target_archive:
+                    with py7zr.SevenZipFile(
+                        target_archive, "r", password=password
+                    ) as seven_zip_ref:
+                        self._extract_7z_py(seven_zip_ref, output_folder)
         else:
             raise ValueError(f"Unknown file format: {input_file}")
 
