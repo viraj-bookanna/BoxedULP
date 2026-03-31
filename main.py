@@ -111,7 +111,7 @@ class BoxedULParser:
             tqdm.write(f"Done: {item_id} (inserted: {insert_count})")
         else:
             await self.tg_log(
-                f"Extraction failed\nFile: {message.file.name}\nID: {event.message.id}"
+                f"Extraction failed\nFile: {message.file.name}\nID: {item_id}"
             )
         if os.path.isfile(archive):
             await aiofiles.os.remove(archive)
