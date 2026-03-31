@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from tqdm import tqdm
 from telethon import TelegramClient, functions, events
 from telethon.sessions import StringSession
+from telethon.tl.custom.message import Message
 from helpers.download_helper import TgFileDownloader
 from helpers.extract_helper import ArchiveExtractor
 from helpers.ulp_helper import StealerLogParser
@@ -78,43 +79,39 @@ class BoxedULParser:
 
     async def _bot2dump(self, event: events.NewMessage.Event) -> None:
         """Queue incoming bot messages for sequential processing."""
-        if event.message.document:
-            await self._queue.put(event)
+        if event.message.text.startswith("/addbox "):
+            msg = await event.get_reply_message()
+            if msg.document:
+                await self._queue.put((msg, event.message.text.split(" ")[1]))
 
     async def _process_queue(self) -> None:
         """Process queued messages one at a time to prevent interleaved output."""
         while True:
-            event = await self._queue.get()
+            message, item_id = await self._queue.get()
             try:
-                await self._process_dump(event)
+                await self._process_dump(message, item_id)
             except Exception as e:  # pylint: disable=broad-exception-caught
-                logger.error(
-                    "Pipeline failed for message %s", event.message.id, exc_info=True
-                )
-                await self.tg_log(
-                    f"Exception ⚠️\nMsg: {repr(e)}\nID: {event.message.id}"
-                )
+                logger.error("Pipeline failed for message %s", item_id, exc_info=True)
+                await self.tg_log(f"Exception ⚠️\nMsg: {repr(e)}\nID: {item_id}")
             finally:
                 self._queue.task_done()
 
-    async def _process_dump(self, event: events.NewMessage.Event) -> None:
+    async def _process_dump(self, message: Message, item_id: str) -> None:
         """Download, extract, parse, and store credentials from a bot message."""
-        logger.info(
-            "Processing message %s: %s", event.message.id, event.message.file.name
-        )
-        archive = await TgFileDownloader().download(event.message, _DL_FOLDER)
-        dest_folder = os.path.join(_EX_FOLDER, f"{event.message.id}")
-        password = event.message.message.split(".pass:", 1)[1].split("\n", 1)[0].strip()
+        logger.info("Processing message %s: %s", item_id, message.file.name)
+        archive = await TgFileDownloader().download(message, _DL_FOLDER)
+        dest_folder = os.path.join(_EX_FOLDER, f"{item_id}")
+        password = message.message.split(".pass:", 1)[1].split("\n", 1)[0].strip()
         if await ArchiveExtractor().try_to_extract(archive, dest_folder, password):
             combolist = await StealerLogParser().ulp_dump(dest_folder)
             insert_count = DatabaseSQL().insert_combos(combolist)
             await self.tg_log(
-                f"Done ✅\nFile: {event.message.file.name}\nInserted: {insert_count}"
+                f"Done ✅\nFile: {message.file.name}\nInserted: {insert_count}"
             )
-            tqdm.write(f"Done: {event.message.id} (inserted: {insert_count})")
+            tqdm.write(f"Done: {item_id} (inserted: {insert_count})")
         else:
             await self.tg_log(
-                f"Extraction failed\nFile: {event.message.file.name}\nID: {event.message.id}"
+                f"Extraction failed\nFile: {message.file.name}\nID: {event.message.id}"
             )
         if os.path.isfile(archive):
             await aiofiles.os.remove(archive)
